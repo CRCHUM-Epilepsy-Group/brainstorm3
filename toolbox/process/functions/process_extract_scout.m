@@ -186,18 +186,15 @@ function OutputFiles = Run(sProcess, sInputs)
     end
 
     % Unconstrained orientations
-    % Only allow norm when called without new pca flattening option.
-    if isfield(sProcess.options, 'flatten') && isfield(sProcess.options.flatten, 'Value') 
-        if isequal(sProcess.options.flatten.Value, 1)
-            UnconstrFunc = 'pca';
-        else
-            UnconstrFunc = 'none';
-        end
-    elseif isfield(sProcess.options, 'isnorm') && isfield(sProcess.options.isnorm, 'Value') && isequal(sProcess.options.isnorm.Value, 1)
+    UnconstrFunc = 'none';
+    % Perform norm if requested ('isnorm' may be set to '1' by calling process)
+    if isfield(sProcess.options, 'isnorm') && isfield(sProcess.options.isnorm, 'Value') && isequal(sProcess.options.isnorm.Value, 1)
         UnconstrFunc = 'norm';
-    else
-        UnconstrFunc = 'none';
+    % If norm=0, then check if PCA fattening was requested
+    elseif isfield(sProcess.options, 'flatten') && isfield(sProcess.options.flatten, 'Value') && isequal(sProcess.options.flatten.Value, 1)
+        UnconstrFunc = 'pca';
     end
+
     % Check if there actually are sources with unconstrained orientations
     if ~strcmpi(UnconstrFunc, 'none')
         % Check if there are unconstrained sources. The function only checks the first file. Other files
@@ -301,7 +298,10 @@ function OutputFiles = Run(sProcess, sInputs)
                 bst_progress('set', round(100*(iInput-1)/length(sInputs)));
             end
         end
-        isAbs = ~isempty(strfind(sInputs(iInput).FileName, '_abs'));
+        % Get meaningful tags in the results file name (without folders)
+        TestResFile = file_resolve_link(sInputs(iInput).FileName);
+        [~, TestTags] = bst_fileparts(TestResFile);
+        isAbs = ~isempty(strfind(TestTags, '_abs'));
 
         % === READ FILES ===
         [sResults, matSourceValues, matDataValues, fileComment] = LoadFile(sProcess, sInputs(iInput), TimeWindow);
@@ -357,6 +357,10 @@ function OutputFiles = Run(sProcess, sInputs)
             if isempty(iRows)
                 OutputFiles = {};
                 CleanExit; return; % Error already reported.
+            end
+            % If norm, orientations will be aggregated, keep only one name per scout
+            if strcmpi(UnconstrFunc, 'norm')
+                RowNames = {ScoutName};
             end
             if AddFileComment && ~isempty(fileComment)
                 RowNames = cellfun(@(c) [c ' @ ' fileComment], RowNames, 'UniformOutput', false);
