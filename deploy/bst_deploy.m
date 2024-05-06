@@ -36,7 +36,7 @@ function bst_deploy(GitDir, GitExe)
 
 %% ===== CONFIGURATION =====
 % Default GIT directory
-if ~ispc
+if ispc
     if (nargin < 1)
         GitDir = 'C:\Work\Dev\brainstorm_git\brainstorm3';
     end
@@ -133,8 +133,8 @@ for p = splitPath
         % Count files and lines
         [tmpComment, tmpCode] = CountLines(strFile, autoComment);
         nFiles   = nFiles + 1;
-        nCode    = nCode + tmpComment;
-        nComment = nComment + tmpCode;
+        nCode    = nCode + tmpCode;
+        nComment = nComment + tmpComment;
     end
 end
 disp('DEPLOY> Statistics:');

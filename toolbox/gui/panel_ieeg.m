@@ -53,6 +53,8 @@ function bstPanelNew = CreatePanel() %#ok<DEFNU>
         % Add/remove
         gui_component('ToolbarButton', jToolbar,[],[], {IconLoader.ICON_PLUS, TB_DIM}, 'Add new electrode', @(h,ev)bst_call(@AddElectrode));
         gui_component('ToolbarButton', jToolbar,[],[], {IconLoader.ICON_MINUS, TB_DIM}, 'Remove selected electrodes', @(h,ev)bst_call(@RemoveElectrode));
+        % Button "Select vertex"
+        jButtonSelect = gui_component('ToolbarToggle', jToolbar, [], '', IconLoader.ICON_SCOUT_NEW, 'Select surface point', @(h,ev)panel_coordinates('SetSelectionState', ev.getSource.isSelected()));
         % Set color
         jToolbar.addSeparator();
         gui_component('ToolbarButton', jToolbar,[],[], {IconLoader.ICON_COLOR_SELECTION, TB_DIM}, 'Select color for selected electrodes', @(h,ev)bst_call(@EditElectrodeColor));
@@ -83,6 +85,7 @@ function bstPanelNew = CreatePanel() %#ok<DEFNU>
                 gui_component('label', jPanelModelCoord, '', ' Coordinates (millimeters): ');
                 jButtonGroupCoord = ButtonGroup();
                 jRadioScs   = gui_component('radio', jPanelModelCoord, 'br', 'SCS ', jButtonGroupCoord, '', @(h,ev)UpdateContactList('SCS'));
+                jRadioScs.setSelected(1);
                 jRadioMri   = gui_component('radio', jPanelModelCoord, '',   'MRI ', jButtonGroupCoord, '', @(h,ev)UpdateContactList('MRI'));
                 jRadioWorld = gui_component('radio', jPanelModelCoord, '', 'World ', jButtonGroupCoord, '', @(h,ev)UpdateContactList('World'));
                 jRadioMni   = gui_component('radio', jPanelModelCoord, '',   'MNI ', jButtonGroupCoord, '', @(h,ev)UpdateContactList('MNI'));
@@ -211,6 +214,7 @@ function bstPanelNew = CreatePanel() %#ok<DEFNU>
                                   'jPanelElecList',      jPanelElecList, ...
                                   'jToolbar',            jToolbar, ...
                                   'jPanelElecOptions',   jPanelElecOptions, ...
+                                  'jButtonSelect',       jButtonSelect, ...
                                   'jButtonShow',         jButtonShow, ...
                                   'jRadioDispDepth',     jRadioDispDepth, ...
                                   'jRadioDispSphere',    jRadioDispSphere, ...
@@ -337,6 +341,11 @@ function bstPanelNew = CreatePanel() %#ok<DEFNU>
     function ContListClick_Callback(h, ev)
         % IF SINGLE CLICK
         if (ev.getClickCount() == 1)
+            ctrl = bst_get('PanelControls', 'iEEG');
+            % if contact list rendering is blank in panel then dont't proceed
+            if ctrl.jListCont.isSelectionEmpty()
+                return;
+            end
             % highlight the location on MRI Viewer and Surface
             HighlightLocCont();
             [sSelCont, sContactName] = GetSelectedContacts();
@@ -362,8 +371,8 @@ function UpdatePanel()
     if isempty(ctrl)
         return;
     end
-    % Get current electrodes
-    [sElectrodes, iDS, iFig, hFig] = GetElectrodes();
+    % Get current figure
+    hFig = bst_figures('GetCurrentFigure');
     % If a surface is available for current figure
     if ~isempty(hFig)
         gui_enable([ctrl.jPanelElecList, ctrl.jToolbar], 1);
@@ -485,7 +494,8 @@ function UpdateContactList(CoordSpace)
     % Get the contacts and their respective name
     [sContacts, sContactsName, iDS, iFig, hFig] = GetContacts(SelName);
     if isempty(sContacts)
-        return
+        ctrl.jListCont.setModel(listModel);
+        return;
     end
     SubjectFile = getappdata(hFig(1), 'SubjectFile');
     sSubject = bst_get('Subject', SubjectFile);
@@ -1191,13 +1201,9 @@ function [sElectrodes, iDSall, iFigall, hFigall] = GetElectrodes()
     global GlobalData;
     % Get current figure
     [hFigall,iFigall,iDSall] = bst_figures('GetCurrentFigure');
-    if isempty(hFigall)
-        % Try MRI viewer figure
-        [hFigall,iFigall,iDSall] = bst_figures('GetFiguresByType','MriViewer');
-    end
 
     % Check if there are electrodes defined for this file
-    if isempty(hFigall) || isempty(GlobalData.DataSet(iDSall).IntraElectrodes) || isempty(GlobalData.DataSet(iDSall).ChannelFile)
+    if isempty(hFigall) || isempty(hFigall(end)) || isempty(GlobalData.DataSet(iDSall(end)).IntraElectrodes) || isempty(GlobalData.DataSet(iDSall(end)).ChannelFile)
         sElectrodes = [];
         return
     end
@@ -1982,7 +1988,7 @@ end
 %% ===== SET DISPLAY MODE =====
 function SetDisplayMode(DisplayMode)
     % Get current figure
-    [sElectrodes, iDS, iFig, hFig] = GetElectrodes();
+    hFig = bst_figures('GetCurrentFigure');
     if isempty(hFig)
         return;
     end
@@ -3084,11 +3090,52 @@ function CreateNewImplantation(MriFile) %#ok<DEFNU>
     % Display channels
     DisplayChannelsMri(ChannelFile, 'SEEG', iAnatomy);
     % Display isosurface
-    DisplayIsosurface(sSubject);
+    DisplayIsosurface(sSubject, [], ChannelFile, 'SEEG');
     % Close progress bar
     bst_progress('stop');
 end
 
+%% ===== LOAD ELECTRODES =====
+function LoadElectrodes(hFig, ChannelFile, Modality) %#ok<DEFNU>
+    global GlobalData;
+    % Get figure and dataset
+    [hFig,iFig,iDS] = bst_figures('GetFigure', hFig);
+    if isempty(iDS)
+        return;
+    end
+    % Check that the channel is not already defined
+    if ~isempty(GlobalData.DataSet(iDS).ChannelFile) && ~file_compare(GlobalData.DataSet(iDS).ChannelFile, ChannelFile)
+        error('There is already another channel file loaded for this MRI. Close the existing figures.');
+    end
+    % Load channel file in the dataset
+    bst_memory('LoadChannelFile', iDS, ChannelFile);
+    % If iEEG channels: load both SEEG and ECOG
+    if ismember(Modality, {'SEEG', 'ECOG', 'ECOG+SEEG'})
+        iChannels = channel_find(GlobalData.DataSet(iDS).Channel, 'SEEG, ECOG');
+    else
+        iChannels = channel_find(GlobalData.DataSet(iDS).Channel, Modality);
+    end
+    % Set the list of selected sensors
+    GlobalData.DataSet(iDS).Figure(iFig).SelectedChannels = iChannels;
+    GlobalData.DataSet(iDS).Figure(iFig).Id.Modality      = Modality;
+    % Plot electrodes
+    if ~isempty(iChannels)
+        switch(GlobalData.DataSet(iDS).Figure(iFig).Id.Type)
+            case 'MriViewer'
+                GlobalData.DataSet(iDS).Figure(iFig).Handles = figure_mri('PlotElectrodes', iDS, iFig, GlobalData.DataSet(iDS).Figure(iFig).Handles);
+                figure_mri('PlotSensors3D', iDS, iFig);
+            case '3DViz'
+                figure_3d('PlotSensors3D', iDS, iFig);
+        end
+    end
+
+    % Set EEG flag for MRI Viewer
+    if strcmpi(GlobalData.DataSet(iDS).Figure(iFig).Id.Type, 'MriViewer')
+        figure_mri('SetFigureStatus', hFig, [], [], [], 1, 1);
+    end
+    % Update figure name
+    bst_figures('UpdateFigureName', hFig);
+end
 
 %% ===== DISPLAY CHANNELS (MRI VIEWER) =====
 % USAGE:  [hFig, iDS, iFig] = DisplayChannelsMri(ChannelFile, Modality, iAnatomy, isEdit=0)
@@ -3156,13 +3203,18 @@ function [hFig, iDS, iFig] = DisplayChannelsMri(ChannelFile, Modality, iAnatomy,
         end
     end
 
+    % If MRI Viewer is open don't open another one
+    hFig = bst_figures('GetFiguresByType', 'MriViewer');
+    if ~isempty(hFig)
+        return
+    end
     % Display the MRI Viewer
     [hFig, iDS, iFig] = view_mri(MriFile, CtFile, [], 2);
     if isempty(hFig)
         return;
     end
     % Add channels to the figure
-    figure_mri('LoadElectrodes', hFig, ChannelFile, Modality);
+    LoadElectrodes(hFig, ChannelFile, Modality);
     % SEEG and ECOG: Open tab "iEEG"
     if ismember(Modality, {'SEEG', 'ECOG', 'ECOG+SEEG'})
         gui_brainstorm('ShowToolTab', 'iEEG');
@@ -3174,7 +3226,7 @@ function [hFig, iDS, iFig] = DisplayChannelsMri(ChannelFile, Modality, iAnatomy,
 end
 
 %% ===== DISPLAY ISOSURFACE =====
-function [hFig, iDS, iFig] = DisplayIsosurface(Subject, hFig)
+function [hFig, iDS, iFig] = DisplayIsosurface(Subject, hFig, ChannelFile, Modality)
     % Parse inputs
     if (nargin < 2) || isempty(hFig)
         hFig = [];
@@ -3193,6 +3245,8 @@ function [hFig, iDS, iFig] = DisplayIsosurface(Subject, hFig)
         hFig = view_mri_3d(Subject.Anatomy(1).FileName, [], 0.3, []);
     end
     [hFig, iDS, iFig] = view_surface(Subject.Surface(ixIsoSurf(1)).FileName, 0.6, [], hFig, []);
+    % Add channels to the figure
+    LoadElectrodes(hFig, ChannelFile, Modality);
 end
 
 %% ===== EXPORT CONTACT POSITIONS =====
