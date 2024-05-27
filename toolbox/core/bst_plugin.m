@@ -662,6 +662,8 @@ PlugDesc(end).ExtraMenus     = {...
     'Step 8 - Spike Labelling GUI', 'step8_SpikeLabellingGUI';...
     };
 PlugDesc(end).TestFile       = 'bst_utils.m';
+PlugDesc(end).AutoUpdate     = 0;
+PlugDesc(end).AutoLoad       = 0;
 PlugDesc(end).CompiledStatus = 2;
 PlugDesc(end).LoadedFcn      = 'bst_utils.spikenet_root';
 % ================================================================================================================
